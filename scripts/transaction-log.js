@@ -119,7 +119,35 @@ function inheritedProvenance(holderName,itemName,destination){
   const prior=priorProvenance(holderName,itemName);
   return prior ? appendProvenance(prior,destination) : {verified:false,path:[provenanceNode(holderName,null,"unknown"),destination]};
 }
-async function emitSemantic(entry){ await persist({...entry,verified:entry.verified??false}); }
+function transactionChatContent(entry){
+  const amount=entry.moneyGP!=null?`<strong>${fmtGP(entry.moneyGP)}</strong>`:"";
+  const value=entry.valueGP!=null?`<div>Valor: ${fmtGP(entry.valueGP,{sign:false})}</div>`:"";
+  const source=entry.source?.label?`<div>${entry.type==="purchase"?"Vendedor":entry.type==="sale"?"Comprador":"Origem"}: ${esc(entry.source.label)}</div>`:"";
+  const transfer=entry.from&&entry.to?`<div>${esc(entry.from.name)} → ${esc(entry.to.name)}</div>`:"";
+  const balance=Number.isFinite(entry.moneyBeforeGP)&&Number.isFinite(entry.moneyAfterGP)
+    ? `<div>Saldo: ${fmtGP(entry.moneyBeforeGP,{sign:false})} → ${fmtGP(entry.moneyAfterGP,{sign:false})}</div>`:"";
+  const provenance=Array.isArray(entry.provenance?.path)&&entry.provenance.path.length
+    ? `<div><strong>Histórico:</strong> ${entry.provenance.path.map(x=>esc(x.name)).join(" → ")}${entry.provenance.verified?"":" ⚠"}</div>`:"";
+  return `<div class="pdp-transaction-message"><strong>${esc(entry.title)}</strong> — ${esc(entry.actorName??"—")} ${amount}
+    ${entry.itemName?`<div>${esc(entry.itemName)} ×${entry.quantity??1}</div>`:""}${provenance}${value}${source}${transfer}${balance}
+    ${entry.scene?`<div>Cena: ${esc(entry.scene)}</div>`:""}<div>${entry.verified?"✓ Verificado":"⚠ Não verificado"}</div></div>`;
+}
+async function createTransactionChatMessage(entry){
+  if(!game.user.isGM || !game.modules.get("custom-chat-tabs")?.active) return;
+  await ChatMessage.create({
+    content:transactionChatContent(entry),
+    whisper:ChatMessage.getWhisperRecipients("GM").map(u=>u.id),
+    flags:{
+      [MODULE_ID]:{transaction:true,type:entry.type,verified:entry.verified??false},
+      "custom-chat-tabs":{module:"pdp-transactions",exclusive:true}
+    }
+  });
+}
+async function emitSemantic(entry){
+  const semantic={...entry,verified:entry.verified??false};
+  await persist(semantic);
+  await createTransactionChatMessage(semantic);
+}
 
 async function correlate(e){
   if(e.used) return;
