@@ -1,7 +1,7 @@
 const MODULE_ID = "pressao-das-profundezas";
-const VERSION = "0.8.3";
+const VERSION = "0.8.4";
 const TAB_ID = "pdp-transactions";
-const WAIT_MS = 1200;
+const WAIT_MS = 5000;
 
 function log(message){ console.log(`Pressão das Profundezas v${VERSION} | ${message}`); }
 function rootElement(chatTab, html){
@@ -107,7 +107,12 @@ async function install(chatTab,html){
     return;
   }
 
-  log("Damage Log navigation not found after wait; creating standalone fallback");
+  if(game.modules.get("damage-log")?.active){
+    log("Damage Log is active but its navigation is not ready; leaving native chat untouched");
+    return;
+  }
+
+  log("Damage Log inactive; creating standalone fallback");
   const nav=document.createElement("nav");
   nav.className="pdp-chat-nav tabs";
   nav.dataset.group="pdp-chat-tabs";
