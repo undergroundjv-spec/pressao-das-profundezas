@@ -1,7 +1,7 @@
 {
   "id": "pressao-das-profundezas",
   "title": "Pressão das Profundezas",
-  "description": "Sistema multiplayer de Strain para PF2e, integrado ao PF2e Toolbelt Resource Tracker.",
+  "description": "Sistema multiplayer de Strain para PF2e com Transaction Log integrado.",
   "version": "0.5.1",
   "authors": [
     {
@@ -9,10 +9,12 @@
     }
   ],
   "esmodules": [
-    "scripts/strain.js"
+    "scripts/strain.js",
+    "scripts/transaction-log.js"
   ],
   "styles": [
-    "styles/strain.css"
+    "styles/strain.css",
+    "styles/transaction-log.css"
   ],
   "compatibility": {
     "minimum": "14",
