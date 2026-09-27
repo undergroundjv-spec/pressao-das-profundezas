@@ -15,7 +15,8 @@ export default [
         Roll: "readonly",
         Dialog: "readonly",
         Hooks: "readonly",
-        document: "readonly"
+        document: "readonly",
+        console: "readonly"
       }
     },
     rules: {
