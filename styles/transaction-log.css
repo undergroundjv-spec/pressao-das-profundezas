@@ -1,0 +1,8 @@
+.pdp-tx-toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+.pdp-tx-list { max-height:60vh; overflow:auto; display:grid; gap:8px; }
+.pdp-tx-row { border:1px solid var(--color-border-light-2, #777); border-radius:5px; padding:8px; }
+.pdp-tx-row header { display:flex; justify-content:space-between; gap:8px; }
+.pdp-tx-row footer { display:flex; flex-wrap:wrap; gap:4px 12px; opacity:.8; font-size:.85em; margin-top:5px; }
+.pdp-tx-badge { font-size:.8em; opacity:.85; }
+.pdp-tx-positive { font-variant-numeric:tabular-nums; }
+.pdp-tx-negative { font-variant-numeric:tabular-nums; }
