@@ -18,6 +18,8 @@ export default [
         CONST: "readonly",
         document: "readonly",
         MutationObserver: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
         console: "readonly"
       }
     },
