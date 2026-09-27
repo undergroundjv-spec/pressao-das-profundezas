@@ -1,0 +1,44 @@
+name: Build Foundry release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION="$(node -p "require('./module.json').version")"
+          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Tag version $VERSION does not match module.json $MANIFEST_VERSION"
+            exit 1
+          fi
+
+      - name: Build Foundry ZIP
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="pressao-das-profundezas-v${VERSION}.zip"
+          zip -r "$ZIP" module.json README.md scripts styles             -x "*.DS_Store"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --title "Pressão das Profundezas $GITHUB_REF_NAME" --prerelease --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" module.json "$ZIP" --clobber
