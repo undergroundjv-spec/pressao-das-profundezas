@@ -1,0 +1,87 @@
+const MODULE_ID = "pressao-das-profundezas";
+const FILTERS = [
+  ["all","Todos"],["money","Dinheiro"],["purchases","Compras"],["loot","Tesouro"],["items","Itens"],["unverified","⚠ Não verificados"]
+];
+let activeFilter = "all";
+
+function esc(v){ return foundry.utils.escapeHTML(String(v ?? "")); }
+function fmtGP(v,{sign=true}={}){ const n=Math.round((Number(v)+Number.EPSILON)*100)/100; return `${sign&&n>0?"+":""}${n.toLocaleString("pt-BR",{maximumFractionDigits:2})} gp`; }
+function matches(entry,filter){
+  if(filter==="all") return true;
+  if(filter==="money") return entry.type==="currency-adjustment";
+  if(filter==="purchases") return entry.type==="purchase" || entry.type==="sale";
+  if(filter==="loot") return entry.type==="loot";
+  if(filter==="unverified") return !entry.verified;
+  if(filter==="items") return ["transfer","item-acquired","item-removed"].includes(entry.type);
+  return true;
+}
+function compactRow(entry){
+  const amount=entry.moneyGP!=null?`<strong class="pdp-sidebar-amount">${fmtGP(entry.moneyGP)}</strong>`:"";
+  const badge=entry.verified?"✓":"⚠";
+  const item=entry.itemName?`<div class="pdp-sidebar-item">${esc(entry.itemName)} ×${entry.quantity??1}</div>`:"";
+  const details=[];
+  if(entry.valueGP!=null) details.push(`Valor: ${fmtGP(entry.valueGP,{sign:false})}`);
+  if(entry.source?.label) details.push(`${entry.type==="purchase"?"Vendedor":entry.type==="sale"?"Comprador":"Origem"}: ${esc(entry.source.label)}`);
+  if(entry.from&&entry.to) details.push(`${esc(entry.from.name)} → ${esc(entry.to.name)}`);
+  if(Number.isFinite(entry.moneyBeforeGP)&&Number.isFinite(entry.moneyAfterGP)) details.push(`Saldo: ${fmtGP(entry.moneyBeforeGP,{sign:false})} → ${fmtGP(entry.moneyAfterGP,{sign:false})}`);
+  if(entry.scene) details.push(`Cena: ${esc(entry.scene)}`);
+  const history=Array.isArray(entry.provenance?.path)&&entry.provenance.path.length
+    ? `<div><strong>Histórico:</strong> ${entry.provenance.path.map(x=>esc(x.name)).join(" → ")}${entry.provenance.verified?"":" ⚠"}</div>`:"";
+  return `<article class="pdp-sidebar-row" data-entry-id="${esc(entry.id)}">
+    <button type="button" class="pdp-sidebar-summary" data-action="toggle-entry">
+      <span><strong>${esc(entry.title)}</strong><small>${esc(entry.actorName??"—")}</small></span>
+      <span class="pdp-sidebar-right">${amount}<i>${badge}</i></span>
+    </button>
+    ${item}
+    <div class="pdp-sidebar-details" hidden>
+      ${details.map(x=>`<div>${x}</div>`).join("")}
+      ${history}
+      <time>${new Date(entry.timestamp).toLocaleString()}</time>
+    </div>
+  </article>`;
+}
+function renderInto(root){
+  if(!root) return;
+  const all=game.pressaoDasProfundezas?.transactionLog?.entries?.()??[];
+  const list=all.filter(x=>matches(x,activeFilter));
+  root.innerHTML=`<div class="pdp-sidebar-log">
+    <nav class="pdp-sidebar-filters">${FILTERS.map(([id,label])=>`<button type="button" data-filter="${id}" class="${activeFilter===id?"active":""}">${label}</button>`).join("")}</nav>
+    <div class="pdp-sidebar-count">${list.length} de ${all.length} registros</div>
+    <div class="pdp-sidebar-entries">${list.length?list.map(compactRow).join(""):"<p class=\"pdp-sidebar-empty\">Nenhuma transação neste filtro.</p>"}</div>
+  </div>`;
+  root.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click",()=>{activeFilter=b.dataset.filter;renderInto(root);}));
+  root.querySelectorAll('[data-action="toggle-entry"]').forEach(b=>b.addEventListener("click",()=>{
+    const details=b.closest(".pdp-sidebar-row")?.querySelector(".pdp-sidebar-details");
+    if(details) details.hidden=!details.hidden;
+  }));
+}
+function sidebarRoot(){ return document.querySelector("#pdp-transaction-log-sidebar .pdp-sidebar-content"); }
+function refresh(){ const root=sidebarRoot(); if(root) renderInto(root); }
+function installSidebar(){
+  if(!game.user.isGM) return;
+  const tabs=document.querySelector("#sidebar-tabs");
+  const sidebar=document.querySelector("#sidebar");
+  if(!tabs||!sidebar||document.querySelector('[data-tab="pdp-transaction-log"]')) return;
+  const tab=document.createElement("a");
+  tab.className="item";
+  tab.dataset.tab="pdp-transaction-log";
+  tab.dataset.tooltip="Transaction Log";
+  tab.setAttribute("aria-label","Transaction Log");
+  tab.innerHTML='<i class="fas fa-receipt"></i>';
+  tabs.append(tab);
+  const panel=document.createElement("section");
+  panel.id="pdp-transaction-log-sidebar";
+  panel.className="tab sidebar-tab";
+  panel.dataset.tab="pdp-transaction-log";
+  panel.innerHTML='<header class="pdp-sidebar-header"><h2><i class="fas fa-receipt"></i> Transaction Log</h2></header><div class="pdp-sidebar-content"></div>';
+  sidebar.append(panel);
+  tab.addEventListener("click",()=>{
+    tabs.querySelectorAll(".item").forEach(x=>x.classList.remove("active"));
+    sidebar.querySelectorAll(".sidebar-tab").forEach(x=>x.classList.remove("active"));
+    tab.classList.add("active"); panel.classList.add("active"); renderInto(panel.querySelector(".pdp-sidebar-content"));
+  });
+  renderInto(panel.querySelector(".pdp-sidebar-content"));
+}
+Hooks.once("ready",()=>globalThis.setTimeout(installSidebar,250));
+Hooks.on("renderSidebar",()=>globalThis.setTimeout(installSidebar,0));
+Hooks.on("updateSetting",setting=>{ if(setting.key===`${MODULE_ID}.transactionLog.entries`) refresh(); });
