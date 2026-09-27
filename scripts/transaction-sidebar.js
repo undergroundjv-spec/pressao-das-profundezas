@@ -91,8 +91,8 @@ function install(chat){
 }
 
 function installFromRender(chatTab,html){
-  const element=html instanceof HTMLElement?html:(html?.[0]??chatTab?.element);
-  const chat=element instanceof HTMLElement?element:(element?.[0]??null);
+  const element=html?.[0] ?? html ?? chatTab?.element;
+  const chat=element?.[0] ?? element ?? null;
   if(!chat) return;
   globalThis.setTimeout(()=>install(chat),0);
 }
