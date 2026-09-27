@@ -22,6 +22,7 @@ if (!version) throw new Error("Could not find VERSION in scripts/strain.js");
 if (!transactionSource.includes('transactionLog')) throw new Error("Transaction Log API not found.");
 if (!transactionSource.includes('CORRELATION_MS')) throw new Error("Transaction correlation engine not found.");
 if (!transactionSource.includes('isPlayerFacingKind')) throw new Error("Player-facing transaction filter not found.");
+if (!transactionSource.includes('moneyBeforeGP') || !transactionSource.includes('moneyAfterGP')) throw new Error("Transaction balance snapshots not found.");
 if (!manifest.esmodules?.includes("scripts/transaction-log.js")) throw new Error("Transaction Log script is not loaded by manifest.");
 console.log(`Source version: ${version}; manifest version: ${manifest.version}`);
 console.log("Module structure and manifest checks passed.");
