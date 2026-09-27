@@ -1,20 +1,6 @@
 const MODULE_ID = "pressao-das-profundezas";
-const FILTERS = [
-  ["all","Todos"],["money","Dinheiro"],["purchases","Compras"],["loot","Tesouro"],["items","Itens"],["unverified","⚠ Não verificados"]
-];
-let activeFilter = "all";
-
 function esc(v){ return foundry.utils.escapeHTML(String(v ?? "")); }
 function fmtGP(v,{sign=true}={}){ const n=Math.round((Number(v)+Number.EPSILON)*100)/100; return `${sign&&n>0?"+":""}${n.toLocaleString("pt-BR",{maximumFractionDigits:2})} gp`; }
-function matches(entry,filter){
-  if(filter==="all") return true;
-  if(filter==="money") return entry.type==="currency-adjustment";
-  if(filter==="purchases") return entry.type==="purchase" || entry.type==="sale";
-  if(filter==="loot") return entry.type==="loot";
-  if(filter==="unverified") return !entry.verified;
-  if(filter==="items") return ["transfer","item-acquired","item-removed"].includes(entry.type);
-  return true;
-}
 function compactRow(entry){
   const amount=entry.moneyGP!=null?`<strong class="pdp-sidebar-amount">${fmtGP(entry.moneyGP)}</strong>`:"";
   const badge=entry.verified?"✓":"⚠";
@@ -43,13 +29,11 @@ function compactRow(entry){
 function renderInto(root){
   if(!root) return;
   const all=game.pressaoDasProfundezas?.transactionLog?.entries?.()??[];
-  const list=all.filter(x=>matches(x,activeFilter));
+  const list=all;
   root.innerHTML=`<div class="pdp-sidebar-log">
-    <nav class="pdp-sidebar-filters">${FILTERS.map(([id,label])=>`<button type="button" data-filter="${id}" class="${activeFilter===id?"active":""}">${label}</button>`).join("")}</nav>
-    <div class="pdp-sidebar-count">${list.length} de ${all.length} registros</div>
-    <div class="pdp-sidebar-entries">${list.length?list.map(compactRow).join(""):"<p class=\"pdp-sidebar-empty\">Nenhuma transação neste filtro.</p>"}</div>
+    <div class="pdp-sidebar-count">${list.length} registros</div>
+    <div class="pdp-sidebar-entries">${list.length?list.map(compactRow).join(""):"<p class=\"pdp-sidebar-empty\">Nenhuma transação registrada.</p>"}</div>
   </div>`;
-  root.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click",()=>{activeFilter=b.dataset.filter;renderInto(root);}));
   root.querySelectorAll('[data-action="toggle-entry"]').forEach(b=>b.addEventListener("click",()=>{
     const details=b.closest(".pdp-sidebar-row")?.querySelector(".pdp-sidebar-details");
     if(details) details.hidden=!details.hidden;
