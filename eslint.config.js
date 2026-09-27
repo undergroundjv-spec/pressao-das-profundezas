@@ -17,6 +17,7 @@ export default [
         Hooks: "readonly",
         CONST: "readonly",
         document: "readonly",
+        MutationObserver: "readonly",
         console: "readonly"
       }
     },
