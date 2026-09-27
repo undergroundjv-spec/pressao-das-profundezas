@@ -2,6 +2,7 @@ const MODULE_ID = "pressao-das-profundezas";
 const SETTING = "transactionLog.entries";
 const MAX_ENTRIES = 1000;
 const COIN_GP = { "platinum-pieces": 10, "gold-pieces": 1, "silver-pieces": 0.1, "copper-pieces": 0.01 };
+const quantityBeforeUpdate = new Map();
 
 function esc(value) { return foundry.utils.escapeHTML(String(value ?? "")); }
 function roundGP(value) { return Math.round((Number(value) + Number.EPSILON) * 100) / 100; }
@@ -82,7 +83,7 @@ function renderLog() {
     content,
     buttons: { close: { label: "Fechar" } },
     render: html => html.find('[data-action="clear"]').on("click", async () => {
-      if (!window.confirm("Limpar todo o Transaction Log?")) return;
+      if (!globalThis.confirm("Limpar todo o Transaction Log?")) return;
       await clearLog();
       html.closest(".app").find(".window-header .close").trigger("click");
     })
@@ -106,11 +107,10 @@ function deleteEntry(item) {
   };
   return { type: "item-removed", title: "Item removido", ...s, verified: false };
 }
-function updateEntry(item, changed) {
+function updateEntry(item, changed, oldQty) {
   const actor = actorFor(item);
   if (!actor) return null;
-  const oldQty = Number(foundry.utils.getProperty(changed, "system.quantity"));
-  if (!Number.isFinite(oldQty)) return null;
+  if (foundry.utils.getProperty(changed, "system.quantity") === undefined || !Number.isFinite(oldQty)) return null;
   const newQty = quantity(item);
   const delta = newQty - oldQty;
   if (!delta) return null;
@@ -143,9 +143,15 @@ Hooks.on("createItem", async (item, options, userId) => {
   const entry = createEntry(item);
   if (entry) await saveEntry(entry);
 });
+Hooks.on("preUpdateItem", (item, changed, options, userId) => {
+  if (userId !== game.user.id || options?.[MODULE_ID]?.ignoreTransactionLog) return;
+  if (foundry.utils.getProperty(changed, "system.quantity") !== undefined) quantityBeforeUpdate.set(item.uuid, quantity(item));
+});
 Hooks.on("updateItem", async (item, changed, options, userId) => {
   if (userId !== game.user.id || options?.[MODULE_ID]?.ignoreTransactionLog) return;
-  const entry = updateEntry(item, changed);
+  const oldQty = quantityBeforeUpdate.get(item.uuid);
+  quantityBeforeUpdate.delete(item.uuid);
+  const entry = updateEntry(item, changed, oldQty);
   if (entry) await saveEntry(entry);
 });
 Hooks.on("deleteItem", async (item, options, userId) => {
