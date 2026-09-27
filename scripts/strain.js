@@ -1,7 +1,7 @@
 const MODULE_ID = "pressao-das-profundezas";
 const TOOLBELT = "pf2e-toolbelt";
 const RESOURCE_SETTING = "resourceTracker.worldResources";
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 const LABELS = {
   fortitude:"Fortitude", reflex:"Reflexos", will:"Vontade", perception:"Percepção",
@@ -264,13 +264,15 @@ async function gmSuccess(data){
   activeRest=null;
 }
 
-async function runPlayerSequence(payload){
-  if(payload.userId!==game.user.id) return;
-  const actor=playerActor();
-  if(!actor){
-    ui.notifications.warn("Defina um personagem para este usuário em User Configuration, ou tenha exatamente um personagem seu na cena.");
-    return;
+async function resolveSequenceResult(type,data){
+  if(game.user.isGM){
+    if(type==="failure") return gmFailure(data);
+    if(type==="success") return gmSuccess(data);
   }
+  game.socket.emit(`module.${MODULE_ID}`,{type,data});
+}
+
+async function rollStrainSequence(actor,payload){
   let progress=0, n=1;
   const history=[];
   while(progress<payload.required){
@@ -283,19 +285,30 @@ async function runPlayerSequence(payload){
     if(degree==="criticalSuccess") progress+=2;
     else if(degree==="success") progress+=1;
     else {
-      game.socket.emit(`module.${MODULE_ID}`,{type:"failure",data:{
-        actorUuid:actor.uuid,eventNo:payload.eventNo,eventName:payload.eventName,check:payload.check,strain:payload.strain,degree,history
-      }});
+      await resolveSequenceResult("failure",{
+        actorUuid:actor.uuid,eventNo:payload.eventNo,eventName:payload.eventName,check:payload.check,
+        strain:payload.strain,degree,history
+      });
       return;
     }
     if(progress>=payload.required){
-      game.socket.emit(`module.${MODULE_ID}`,{type:"success",data:{
+      await resolveSequenceResult("success",{
         actorUuid:actor.uuid,eventName:payload.eventName,progress,required:payload.required,minutes:payload.minutes
-      }});
+      });
       return;
     }
     n++;
   }
+}
+
+async function runPlayerSequence(payload){
+  if(payload.userId!==game.user.id) return;
+  const actor=playerActor();
+  if(!actor){
+    ui.notifications.warn("Defina um personagem para este usuário em User Configuration, ou tenha exatamente um personagem seu na cena.");
+    return;
+  }
+  return rollStrainSequence(actor,payload);
 }
 
 async function startRest(){
@@ -387,10 +400,9 @@ Hooks.once("ready",()=>{
           return;
         }
         activeRest.resolved=true;
-        await runSequence({
-          restId,check,actorUuid:actor.uuid,tests:activeRest.tests,
-          eventNo:activeRest.eventNo,eventName:activeRest.eventName,
-          strain:activeRest.strain
+        await rollStrainSequence(actor,{
+          check,eventNo:activeRest.eventNo,eventName:activeRest.eventName,
+          minutes:activeRest.minutes,required:activeRest.required,strain:activeRest.strain
         });
       } else {
         game.socket.emit(`module.${MODULE_ID}`,{
