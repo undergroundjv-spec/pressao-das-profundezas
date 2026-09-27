@@ -1,8 +1,8 @@
 const MODULE_ID = "pressao-das-profundezas";
-let transactionViewActive = false;
 
 function esc(v){ return foundry.utils.escapeHTML(String(v ?? "")); }
 function fmtGP(v,{sign=true}={}){ const n=Math.round((Number(v)+Number.EPSILON)*100)/100; return `${sign&&n>0?"+":""}${n.toLocaleString("pt-BR",{maximumFractionDigits:2})} gp`; }
+
 function compactRow(entry){
   const amount=entry.moneyGP!=null?`<strong class="pdp-chat-amount">${fmtGP(entry.moneyGP)}</strong>`:"";
   const badge=entry.verified?"✓":"⚠";
@@ -24,60 +24,86 @@ function compactRow(entry){
     <div class="pdp-chat-details" hidden>${details.map(x=>`<div>${x}</div>`).join("")}${history}<time>${new Date(entry.timestamp).toLocaleString()}</time></div>
   </article>`;
 }
-function findChat(){
-  return document.querySelector("#chat, #chat-log")?.closest(".sidebar-tab") ?? document.querySelector("#chat");
-}
-function findChatLog(chat){
-  return chat?.querySelector("#chat-log, .chat-log, [data-application-part='log'], .chat-scroll");
-}
-function ensureView(chat){
-  let view=chat.querySelector(".pdp-chat-transactions");
-  if(!view){
-    view=document.createElement("section");
-    view.className="pdp-chat-transactions";
-    view.hidden=true;
-    const log=findChatLog(chat);
-    if(log?.parentElement) log.parentElement.insertBefore(view,log);
-    else chat.append(view);
-  }
-  return view;
-}
-function renderTransactions(chat=findChat()){
-  if(!chat) return;
-  const view=ensureView(chat);
+
+function renderTransactions(root){
+  if(!root) return;
   const list=game.pressaoDasProfundezas?.transactionLog?.entries?.()??[];
-  view.innerHTML=`<div class="pdp-chat-count">${list.length} registros</div><div class="pdp-chat-entries">${list.length?list.map(compactRow).join(""):"<p>Nenhuma transação registrada.</p>"}</div>`;
-  view.querySelectorAll('[data-action="toggle-entry"]').forEach(b=>b.addEventListener("click",()=>{
+  root.innerHTML=`<div class="pdp-chat-count">${list.length} registros</div><div class="pdp-chat-entries">${list.length?list.map(compactRow).join(""):"<p>Nenhuma transação registrada.</p>"}</div>`;
+  root.querySelectorAll('[data-action="toggle-entry"]').forEach(b=>b.addEventListener("click",()=>{
     const d=b.closest(".pdp-chat-row")?.querySelector(".pdp-chat-details"); if(d) d.hidden=!d.hidden;
   }));
 }
-function setView(mode,chat=findChat()){
-  if(!chat) return;
-  transactionViewActive=mode==="transactions";
-  const log=findChatLog(chat);
-  const view=ensureView(chat);
-  if(log) log.hidden=transactionViewActive;
-  view.hidden=!transactionViewActive;
-  chat.classList.toggle("pdp-transactions-active",transactionViewActive);
-  chat.querySelectorAll(".pdp-chat-mode").forEach(b=>b.classList.toggle("active",b.dataset.mode===mode));
-  if(transactionViewActive) renderTransactions(chat);
+
+function activateTransactions(chat){
+  const nav=chat.querySelector(".damage-log-nav.tabs");
+  const tx=chat.querySelector("#pdp-transaction-log");
+  const chatLog=chat.querySelector("#chat-log");
+  const damageLog=chat.querySelector("#damage-log");
+  if(!nav||!tx||!chatLog) return;
+  nav.querySelectorAll(".item").forEach(x=>x.classList.remove("active"));
+  nav.querySelector(".pdp-transaction-tab")?.classList.add("active");
+  chatLog.style.display="none";
+  if(damageLog) damageLog.style.display="none";
+  tx.style.display="";
+  renderTransactions(tx);
 }
-function installChatTransactions(){
+
+function deactivateTransactions(chat){
+  const tx=chat.querySelector("#pdp-transaction-log");
+  if(tx) tx.style.display="none";
+}
+
+function install(chat){
   if(!game.user.isGM) return;
-  const chat=findChat(); if(!chat) return;
-  if(chat.querySelector(".pdp-chat-modebar")) return;
-  const bar=document.createElement("nav");
-  bar.className="pdp-chat-modebar";
-  bar.innerHTML='<button type="button" class="pdp-chat-mode active" data-mode="chat"><i class="fas fa-comments"></i> Chat</button><button type="button" class="pdp-chat-mode" data-mode="transactions"><i class="fas fa-receipt"></i> Transações</button>';
-  const anchor=chat.querySelector("header, .chat-control-icon, #chat-controls, .chat-form");
-  if(anchor?.parentElement) anchor.parentElement.insertBefore(bar,anchor);
-  else chat.prepend(bar);
-  bar.querySelector('[data-mode="chat"]').addEventListener("click",()=>setView("chat",chat));
-  bar.querySelector('[data-mode="transactions"]').addEventListener("click",()=>setView("transactions",chat));
-  renderTransactions(chat);
+  const nav=chat.querySelector(".damage-log-nav.tabs");
+  const chatLog=chat.querySelector("#chat-log");
+  if(!nav||!chatLog) return;
+
+  let tx=chat.querySelector("#pdp-transaction-log");
+  if(!tx){
+    tx=document.createElement("section");
+    tx.id="pdp-transaction-log";
+    tx.className="pdp-chat-transactions";
+    tx.style.display="none";
+    chatLog.insertAdjacentElement("afterend",tx);
+  }
+
+  let tab=nav.querySelector(".pdp-transaction-tab");
+  if(!tab){
+    tab=document.createElement("a");
+    tab.className="item pdp-transaction-tab";
+    tab.textContent="Transações";
+    tab.href="#";
+    nav.append(tab);
+    tab.addEventListener("click",event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      activateTransactions(chat);
+    });
+  }
+
+  nav.querySelectorAll(".item:not(.pdp-transaction-tab)").forEach(nativeTab=>{
+    if(nativeTab.dataset.pdpBound) return;
+    nativeTab.dataset.pdpBound="true";
+    nativeTab.addEventListener("click",()=>deactivateTransactions(chat),true);
+  });
+  renderTransactions(tx);
 }
-function refresh(){ if(transactionViewActive) renderTransactions(); }
-Hooks.once("ready",()=>globalThis.setTimeout(installChatTransactions,300));
-Hooks.on("renderChatLog",()=>globalThis.setTimeout(installChatTransactions,0));
-Hooks.on("renderSidebar",()=>globalThis.setTimeout(installChatTransactions,0));
+
+function installFromRender(chatTab,html){
+  const element=html instanceof HTMLElement?html:(html?.[0]??chatTab?.element);
+  const chat=element instanceof HTMLElement?element:(element?.[0]??null);
+  if(!chat) return;
+  globalThis.setTimeout(()=>install(chat),0);
+}
+
+function refresh(){
+  document.querySelectorAll("#pdp-transaction-log").forEach(renderTransactions);
+}
+
+Hooks.on("renderChatLog",installFromRender);
+Hooks.once("ready",()=>globalThis.setTimeout(()=>{
+  const chat=document.querySelector("#chat");
+  if(chat) install(chat);
+},500));
 Hooks.on("updateSetting",setting=>{ if(setting.key===`${MODULE_ID}.transactionLog.entries`) refresh(); });
