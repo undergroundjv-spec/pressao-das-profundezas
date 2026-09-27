@@ -9,7 +9,12 @@
 
 .pdp-tx-provenance { margin-top:4px; font-size:.88em; opacity:.9; }
 
+#sidebar { position:relative; }
 #pdp-transaction-log-sidebar { padding:0; overflow:hidden; }
+.pdp-sidebar-overlay { display:none; position:absolute; inset:0; z-index:20; background:var(--color-cool-5-90, rgba(20,20,20,.97)); }
+.pdp-sidebar-overlay.active { display:flex; flex-direction:column; }
+.pdp-sidebar-header { display:flex; justify-content:space-between; align-items:center; }
+.pdp-sidebar-header [data-action="close-log"] { width:28px; height:28px; padding:0; }
 .pdp-sidebar-header { padding:8px 10px; border-bottom:1px solid var(--color-border-light-2,#777); }
 .pdp-sidebar-header h2 { margin:0; font-size:1.05rem; }
 .pdp-sidebar-content { height:100%; overflow:hidden; display:flex; flex-direction:column; }
