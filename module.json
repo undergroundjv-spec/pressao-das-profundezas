@@ -2,7 +2,7 @@
   "id": "pressao-das-profundezas",
   "title": "Pressão das Profundezas",
   "description": "Sistema multiplayer de Strain para PF2e com Transaction Log integrado.",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "authors": [
     {
       "name": "João Marques"
@@ -35,10 +35,19 @@
         "type": "module",
         "compatibility": {}
       }
+    ],
+    "recommends": [
+      {
+        "id": "custom-chat-tabs",
+        "type": "module",
+        "compatibility": {
+          "minimum": "1.1.3"
+        }
+      }
     ]
   },
   "socket": true,
   "url": "https://github.com/undergroundjv-spec/pressao-das-profundezas",
   "manifest": "https://github.com/undergroundjv-spec/pressao-das-profundezas/releases/latest/download/module.json",
-  "download": "https://github.com/undergroundjv-spec/pressao-das-profundezas/releases/download/v0.7.4/pressao-das-profundezas-v0.7.4.zip"
+  "download": "https://github.com/undergroundjv-spec/pressao-das-profundezas/releases/download/v0.8.0/pressao-das-profundezas-v0.8.0.zip"
 }
