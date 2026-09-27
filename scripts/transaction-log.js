@@ -136,7 +136,6 @@ async function createTransactionChatMessage(entry){
   if(!game.user.isGM) return;
   await ChatMessage.create({
     content:transactionChatContent(entry),
-    whisper:ChatMessage.getWhisperRecipients("GM").map(u=>u.id),
     flags:{
       [MODULE_ID]:{transaction:true,type:entry.type,verified:entry.verified??false}
     }
