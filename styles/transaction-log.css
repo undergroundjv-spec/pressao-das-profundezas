@@ -6,3 +6,5 @@
 .pdp-tx-badge { font-size:.8em; opacity:.85; }
 .pdp-tx-positive { font-variant-numeric:tabular-nums; }
 .pdp-tx-negative { font-variant-numeric:tabular-nums; }
+
+.pdp-tx-provenance { margin-top:4px; font-size:.88em; opacity:.9; }
