@@ -133,13 +133,12 @@ function transactionChatContent(entry){
     ${entry.scene?`<div>Cena: ${esc(entry.scene)}</div>`:""}<div>${entry.verified?"✓ Verificado":"⚠ Não verificado"}</div></div>`;
 }
 async function createTransactionChatMessage(entry){
-  if(!game.user.isGM || !game.modules.get("custom-chat-tabs")?.active) return;
+  if(!game.user.isGM) return;
   await ChatMessage.create({
     content:transactionChatContent(entry),
     whisper:ChatMessage.getWhisperRecipients("GM").map(u=>u.id),
     flags:{
-      [MODULE_ID]:{transaction:true,type:entry.type,verified:entry.verified??false},
-      "custom-chat-tabs":{module:"pdp-transactions",exclusive:true}
+      [MODULE_ID]:{transaction:true,type:entry.type,verified:entry.verified??false}
     }
   });
 }
