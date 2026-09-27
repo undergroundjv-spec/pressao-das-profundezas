@@ -2,8 +2,9 @@ import fs from "node:fs";
 
 const manifest = JSON.parse(fs.readFileSync("module.json", "utf8"));
 const source = fs.readFileSync("scripts/strain.js", "utf8");
+const transactionSource = fs.readFileSync("scripts/transaction-log.js", "utf8");
 
-const requiredFiles = ["scripts/strain.js", "styles/strain.css"];
+const requiredFiles = ["scripts/strain.js", "scripts/transaction-log.js", "styles/strain.css", "styles/transaction-log.css"];
 for (const file of requiredFiles) {
   if (!fs.existsSync(file)) throw new Error(`Missing required file: ${file}`);
 }
@@ -18,5 +19,7 @@ if (!version) throw new Error("Could not find VERSION in scripts/strain.js");
 
 // During development the source version may be one patch ahead of module.json.
 // Release preparation will make them identical.
+if (!transactionSource.includes('transactionLog')) throw new Error("Transaction Log API not found.");
+if (!manifest.esmodules?.includes("scripts/transaction-log.js")) throw new Error("Transaction Log script is not loaded by manifest.");
 console.log(`Source version: ${version}; manifest version: ${manifest.version}`);
 console.log("Module structure and manifest checks passed.");
