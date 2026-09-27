@@ -20,6 +20,8 @@ if (!version) throw new Error("Could not find VERSION in scripts/strain.js");
 // During development the source version may be one patch ahead of module.json.
 // Release preparation will make them identical.
 if (!transactionSource.includes('transactionLog')) throw new Error("Transaction Log API not found.");
+if (!transactionSource.includes('CORRELATION_MS')) throw new Error("Transaction correlation engine not found.");
+if (!transactionSource.includes('isPlayerFacingKind')) throw new Error("Player-facing transaction filter not found.");
 if (!manifest.esmodules?.includes("scripts/transaction-log.js")) throw new Error("Transaction Log script is not loaded by manifest.");
 console.log(`Source version: ${version}; manifest version: ${manifest.version}`);
 console.log("Module structure and manifest checks passed.");
