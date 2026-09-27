@@ -41,30 +41,56 @@ function renderInto(root){
 }
 function sidebarRoot(){ return document.querySelector("#pdp-transaction-log-sidebar .pdp-sidebar-content"); }
 function refresh(){ const root=sidebarRoot(); if(root) renderInto(root); }
+function deactivateTransactionLog(){
+  const tab=document.querySelector('[data-tab="pdp-transaction-log"]');
+  const panel=document.querySelector("#pdp-transaction-log-sidebar");
+  tab?.classList.remove("active");
+  panel?.classList.remove("active");
+}
+function activateTransactionLog(event){
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  event?.stopImmediatePropagation?.();
+  const tab=document.querySelector('[data-tab="pdp-transaction-log"]');
+  const panel=document.querySelector("#pdp-transaction-log-sidebar");
+  if(!tab||!panel) return;
+  document.querySelectorAll("#sidebar-tabs .item").forEach(x=>x.classList.remove("active"));
+  tab.classList.add("active");
+  panel.classList.add("active");
+  renderInto(panel.querySelector(".pdp-sidebar-content"));
+}
 function installSidebar(){
   if(!game.user.isGM) return;
   const tabs=document.querySelector("#sidebar-tabs");
   const sidebar=document.querySelector("#sidebar");
-  if(!tabs||!sidebar||document.querySelector('[data-tab="pdp-transaction-log"]')) return;
-  const tab=document.createElement("a");
-  tab.className="item";
-  tab.dataset.tab="pdp-transaction-log";
-  tab.dataset.tooltip="Transaction Log";
-  tab.setAttribute("aria-label","Transaction Log");
-  tab.innerHTML='<i class="fas fa-receipt"></i>';
-  tabs.append(tab);
-  const panel=document.createElement("section");
-  panel.id="pdp-transaction-log-sidebar";
-  panel.className="tab sidebar-tab";
-  panel.dataset.tab="pdp-transaction-log";
-  panel.innerHTML='<header class="pdp-sidebar-header"><h2><i class="fas fa-receipt"></i> Transaction Log</h2></header><div class="pdp-sidebar-content"></div>';
-  sidebar.append(panel);
-  tab.addEventListener("click",()=>{
-    tabs.querySelectorAll(".item").forEach(x=>x.classList.remove("active"));
-    sidebar.querySelectorAll(".sidebar-tab").forEach(x=>x.classList.remove("active"));
-    tab.classList.add("active"); panel.classList.add("active"); renderInto(panel.querySelector(".pdp-sidebar-content"));
+  if(!tabs||!sidebar) return;
+  let tab=document.querySelector('[data-tab="pdp-transaction-log"]');
+  let panel=document.querySelector("#pdp-transaction-log-sidebar");
+  if(!tab){
+    tab=document.createElement("a");
+    tab.className="item pdp-transaction-tab";
+    tab.dataset.tab="pdp-transaction-log";
+    tab.dataset.tooltip="Transaction Log";
+    tab.setAttribute("aria-label","Transaction Log");
+    tab.innerHTML='<i class="fas fa-receipt"></i>';
+    tabs.append(tab);
+    tab.addEventListener("pointerdown",activateTransactionLog,true);
+    tab.addEventListener("click",activateTransactionLog,true);
+  }
+  if(!panel){
+    panel=document.createElement("section");
+    panel.id="pdp-transaction-log-sidebar";
+    panel.className="pdp-sidebar-overlay";
+    panel.innerHTML='<header class="pdp-sidebar-header"><h2><i class="fas fa-receipt"></i> Transaction Log</h2><button type="button" data-action="close-log" aria-label="Fechar"><i class="fas fa-times"></i></button></header><div class="pdp-sidebar-content"></div>';
+    sidebar.append(panel);
+    panel.querySelector('[data-action="close-log"]').addEventListener("click",deactivateTransactionLog);
+    renderInto(panel.querySelector(".pdp-sidebar-content"));
+  }
+  tabs.querySelectorAll(".item:not(.pdp-transaction-tab)").forEach(nativeTab=>{
+    if(nativeTab.dataset.pdpCloseBound) return;
+    nativeTab.dataset.pdpCloseBound="true";
+    nativeTab.addEventListener("pointerdown",deactivateTransactionLog,true);
   });
-  renderInto(panel.querySelector(".pdp-sidebar-content"));
 }
 Hooks.once("ready",()=>globalThis.setTimeout(installSidebar,250));
 Hooks.on("renderSidebar",()=>globalThis.setTimeout(installSidebar,0));
