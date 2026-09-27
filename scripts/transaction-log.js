@@ -1,161 +1,198 @@
 const MODULE_ID = "pressao-das-profundezas";
 const SETTING = "transactionLog.entries";
 const MAX_ENTRIES = 1000;
+const CORRELATION_MS = 750;
 const COIN_GP = { "platinum-pieces": 10, "gold-pieces": 1, "silver-pieces": 0.1, "copper-pieces": 0.01 };
 const quantityBeforeUpdate = new Map();
+const pendingEvidence = [];
 
-function esc(value) { return foundry.utils.escapeHTML(String(value ?? "")); }
-function roundGP(value) { return Math.round((Number(value) + Number.EPSILON) * 100) / 100; }
-function fmtGP(value) {
-  const n = roundGP(value);
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} gp`;
+function esc(v){ return foundry.utils.escapeHTML(String(v ?? "")); }
+function roundGP(v){ return Math.round((Number(v)+Number.EPSILON)*100)/100; }
+function fmtGP(v,{sign=true}={}){ const n=roundGP(v); return `${sign&&n>0?"+":""}${n.toLocaleString("pt-BR",{maximumFractionDigits:2})} gp`; }
+function actorFor(item){ return item?.parent?.documentName==="Actor" ? item.parent : null; }
+function quantity(item){ return Number(item?.system?.quantity ?? 1); }
+function coinUnitGP(item){ return COIN_GP[item?.slug] ?? COIN_GP[item?.system?.slug] ?? null; }
+function isCoin(item){ return coinUnitGP(item)!==null; }
+function itemValueGP(item,qty=quantity(item)){
+  if(isCoin(item)) return roundGP(coinUnitGP(item)*qty);
+  const price=item?.system?.price?.value; if(!price) return null;
+  const c=price.toObject?.() ?? price;
+  const total=Number(c.pp??0)*10+Number(c.gp??0)+Number(c.sp??0)/10+Number(c.cp??0)/100;
+  return roundGP(total/Math.max(Number(item?.system?.price?.per??1),1)*qty);
 }
-function actorFor(item) { return item?.parent?.documentName === "Actor" ? item.parent : null; }
-function quantity(item) { return Number(item?.system?.quantity ?? 1); }
-function coinUnitGP(item) { return COIN_GP[item?.slug] ?? COIN_GP[item?.system?.slug] ?? null; }
-function isCoin(item) { return coinUnitGP(item) !== null; }
-function itemValueGP(item, qty = quantity(item)) {
-  if (isCoin(item)) return roundGP(coinUnitGP(item) * qty);
-  const price = item?.system?.price?.value;
-  if (!price) return null;
-  const coins = price.toObject?.() ?? price;
-  const total = (Number(coins.pp ?? 0) * 10) + Number(coins.gp ?? 0) + (Number(coins.sp ?? 0) / 10) + (Number(coins.cp ?? 0) / 100);
-  const per = Math.max(Number(item?.system?.price?.per ?? 1), 1);
-  return roundGP((total / per) * qty);
+function sourceId(item){ return item?.sourceId ?? item?.flags?.core?.sourceId ?? null; }
+function sceneContext(actor){
+  const token=actor?.getActiveTokens?.(true,true)?.[0];
+  return token?{scene:token.scene?.name??null,token:token.name??null}:{scene:null,token:null};
 }
-function sourceId(item) { return item?.sourceId ?? item?.flags?.core?.sourceId ?? null; }
-function sceneContext(actor) {
-  const token = actor?.getActiveTokens?.(true, true)?.[0];
-  return token ? { scene: token.scene?.name ?? null, token: token.name ?? null } : { scene: null, token: null };
+function actorKind(actor){
+  if(!actor) return "unknown";
+  if(actor.type==="character") return "character";
+  if(actor.type==="party") return "party";
+  if(actor.type==="loot"){
+    const lootType=actor.system?.lootSheetType ?? actor.system?.details?.lootSheetType ?? actor.system?.lootSheet?.type;
+    return String(lootType??"").toLowerCase().includes("merchant") ? "merchant" : "loot";
+  }
+  return actor.type==="npc" ? "npc" : "other";
 }
-function classifySource(item) {
-  const sid = sourceId(item);
-  if (!sid) return { type: "unknown", label: "Desconhecida", uuid: null };
-  if (sid.startsWith("Compendium.")) return { type: "compendium", label: "Compêndio", uuid: sid };
-  if (sid.startsWith("Actor.")) return { type: "actor", label: "Ator/Inventário", uuid: sid };
-  return { type: "document", label: "Documento", uuid: sid };
+function classifySource(item){
+  const sid=sourceId(item);
+  if(!sid) return {type:"unknown",label:"Desconhecida",uuid:null};
+  if(sid.startsWith("Compendium.")) return {type:"compendium",label:"Compêndio",uuid:sid};
+  return {type:"document",label:"Documento",uuid:sid};
 }
-function snapshot(item) {
-  const actor = actorFor(item);
+function snapshot(item){
+  const actor=actorFor(item);
   return {
-    itemId: item.id, itemUuid: item.uuid, itemName: item.name, itemType: item.type,
-    quantity: quantity(item), valueGP: itemValueGP(item),
-    actorId: actor?.id ?? null, actorUuid: actor?.uuid ?? null, actorName: actor?.name ?? null,
-    source: classifySource(item), ...sceneContext(actor)
+    itemId:item.id,itemUuid:item.uuid,itemName:item.name,itemType:item.type,
+    quantity:quantity(item),valueGP:itemValueGP(item),source:classifySource(item),
+    actorId:actor?.id??null,actorUuid:actor?.uuid??null,actorName:actor?.name??null,
+    actorKind:actorKind(actor),...sceneContext(actor)
   };
 }
-function entries() { return foundry.utils.deepClone(game.settings.get(MODULE_ID, SETTING) ?? []); }
-async function saveEntry(entry) {
-  if (!game.user.isGM) {
-    game.socket.emit(`module.${MODULE_ID}`, { type: "transaction-log:add", data: entry });
-    return;
-  }
-  const list = entries();
-  list.unshift({ id: foundry.utils.randomID(), timestamp: Date.now(), ...entry });
-  await game.settings.set(MODULE_ID, SETTING, list.slice(0, MAX_ENTRIES));
+function isPlayerFacingKind(kind){ return kind==="character" || kind==="party"; }
+function entries(){ return foundry.utils.deepClone(game.settings.get(MODULE_ID,SETTING)??[]); }
+async function persist(entry){
+  if(!game.user.isGM){ game.socket.emit(`module.${MODULE_ID}`,{type:"transaction-log:add",data:entry}); return; }
+  const list=entries();
+  list.unshift({id:foundry.utils.randomID(),timestamp:Date.now(),...entry});
+  await game.settings.set(MODULE_ID,SETTING,list.slice(0,MAX_ENTRIES));
 }
-async function clearLog() {
-  if (!game.user.isGM) return ui.notifications.warn("Apenas o GM pode limpar o Transaction Log.");
-  await game.settings.set(MODULE_ID, SETTING, []);
+async function clearLog(){
+  if(!game.user.isGM) return ui.notifications.warn("Apenas o GM pode limpar o Transaction Log.");
+  await game.settings.set(MODULE_ID,SETTING,[]);
   ui.notifications.info("Transaction Log limpo.");
 }
-function row(entry) {
-  const amount = entry.moneyGP != null ? `<strong class="${entry.moneyGP >= 0 ? "pdp-tx-positive" : "pdp-tx-negative"}">${fmtGP(entry.moneyGP)}</strong>` : "";
-  const value = entry.valueGP != null ? `<span>Valor: ${fmtGP(entry.valueGP).replace("+", "")}</span>` : "";
-  const source = entry.source?.label ? `<span>Fonte: ${esc(entry.source.label)}</span>` : "";
-  const place = entry.scene ? `<span>Cena: ${esc(entry.scene)}${entry.token ? ` — ${esc(entry.token)}` : ""}</span>` : "";
-  const badge = entry.verified ? "✓ Verificado" : "⚠ Não verificado";
-  return `<article class="pdp-tx-row">
-    <header><strong>${esc(entry.title)}</strong><span class="pdp-tx-badge">${badge}</span></header>
-    <div>${esc(entry.actorName ?? "—")} ${amount}</div>
-    ${entry.itemName ? `<div>${esc(entry.itemName)}${entry.quantity ? ` ×${entry.quantity}` : ""}</div>` : ""}
-    <footer>${value}${source}${place}<span>${new Date(entry.timestamp).toLocaleString()}</span></footer>
-  </article>`;
+function evidenceKey(e){ return `${e.itemName}|${e.quantity}|${e.valueGP}`; }
+function sameItem(a,b){ return evidenceKey(a)===evidenceKey(b); }
+function oppositeItem(e){
+  return pendingEvidence.find(x=>!x.used && x.kind!==e.kind && x.kind!=="money" && sameItem(x,e) && x.actorUuid!==e.actorUuid);
 }
-function renderLog() {
-  if (!game.user.isGM) return ui.notifications.warn("O Transaction Log é GM-only nesta primeira versão.");
-  const list = entries();
-  const content = `<div class="pdp-tx-toolbar"><strong>${list.length} registros</strong><button type="button" data-action="clear">Limpar</button></div>
-    <div class="pdp-tx-list">${list.length ? list.map(row).join("") : "<p>Nenhuma transação registrada.</p>"}</div>`;
-  new Dialog({
-    title: "Transaction Log",
-    content,
-    buttons: { close: { label: "Fechar" } },
-    render: html => html.find('[data-action="clear"]').on("click", async () => {
-      if (!globalThis.confirm("Limpar todo o Transaction Log?")) return;
-      await clearLog();
-      html.closest(".app").find(".window-header .close").trigger("click");
-    })
-  }).render(true);
+function moneyFor(actorUuid,sign){
+  return pendingEvidence.find(x=>!x.used && x.kind==="money" && x.actorUuid===actorUuid && Math.sign(x.moneyGP)===sign);
 }
-function createEntry(item) {
-  const s = snapshot(item);
-  if (!s.actorUuid) return null;
-  if (isCoin(item)) return {
-    type: "money", title: "Dinheiro adicionado", actorName: s.actorName,
-    moneyGP: itemValueGP(item), verified: false, source: s.source, scene: s.scene, token: s.token
-  };
-  return { type: "item-acquired", title: "Item adquirido", ...s, verified: false };
+function consume(...xs){ xs.filter(Boolean).forEach(x=>{x.used=true;}); }
+function sourceLabel(e){ return e?.actorName ?? "Desconhecida"; }
+async function emitSemantic(entry){ await persist({...entry,verified:entry.verified??false}); }
+
+async function correlate(e){
+  if(e.used) return;
+  if(e.kind==="money"){
+    if(!isPlayerFacingKind(e.actorKind)){ e.used=true; return; }
+    const related=pendingEvidence.some(x=>!x.used && x!==e && x.actorUuid===e.actorUuid && x.kind!=="money");
+    if(related) return;
+    consume(e);
+    await emitSemantic({type:"currency-adjustment",title:e.moneyGP>0?"Dinheiro adicionado":"Dinheiro removido",actorName:e.actorName,moneyGP:e.moneyGP,verified:false,scene:e.scene,token:e.token});
+    return;
+  }
+  const other=oppositeItem(e);
+  if(other){
+    const removed=e.kind==="item-removed"?e:other;
+    const added=e.kind==="item-acquired"?e:other;
+    if(removed.kind!=="item-removed" || added.kind!=="item-acquired") return;
+
+    if(isPlayerFacingKind(removed.actorKind) && isPlayerFacingKind(added.actorKind)){
+      consume(removed,added);
+      await emitSemantic({type:"transfer",title:"Item transferido",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
+        from:{name:removed.actorName,uuid:removed.actorUuid},to:{name:added.actorName,uuid:added.actorUuid},verified:true,scene:added.scene});
+      return;
+    }
+    if(!isPlayerFacingKind(removed.actorKind) && isPlayerFacingKind(added.actorKind)){
+      const paid=moneyFor(added.actorUuid,-1);
+      consume(removed,added,paid);
+      if(removed.actorKind==="merchant"){
+        await emitSemantic({type:"purchase",title:"Compra",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
+          moneyGP:paid?.moneyGP??null,source:{type:"vendor",label:sourceLabel(removed),uuid:removed.actorUuid},verified:!!paid,scene:added.scene});
+      } else {
+        await emitSemantic({type:"loot",title:"Tesouro obtido",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
+          source:{type:removed.actorKind==="npc"?"corpse":"treasure",label:sourceLabel(removed),uuid:removed.actorUuid},verified:true,scene:removed.scene??added.scene});
+      }
+      return;
+    }
+    if(isPlayerFacingKind(removed.actorKind) && !isPlayerFacingKind(added.actorKind)){
+      const received=moneyFor(removed.actorUuid,1);
+      consume(removed,added,received);
+      if(added.actorKind==="merchant"){
+        await emitSemantic({type:"sale",title:"Item vendido",actorName:removed.actorName,itemName:removed.itemName,quantity:removed.quantity,valueGP:removed.valueGP,
+          moneyGP:received?.moneyGP??null,source:{type:"vendor",label:sourceLabel(added),uuid:added.actorUuid},verified:!!received,scene:removed.scene});
+      }
+      return;
+    }
+    consume(removed,added);
+    return;
+  }
+
+  if(!isPlayerFacingKind(e.actorKind)){ consume(e); return; }
+  consume(e);
+  if(e.kind==="item-acquired"){
+    await emitSemantic({type:"item-acquired",title:"Aquisição não verificada",actorName:e.actorName,itemName:e.itemName,quantity:e.quantity,valueGP:e.valueGP,
+      source:e.source,verified:false,scene:e.scene,token:e.token});
+  } else {
+    await emitSemantic({type:"item-removed",title:"Item removido",actorName:e.actorName,itemName:e.itemName,quantity:e.quantity,valueGP:e.valueGP,
+      verified:false,scene:e.scene,token:e.token});
+  }
 }
-function deleteEntry(item) {
-  const s = snapshot(item);
-  if (!s.actorUuid) return null;
-  if (isCoin(item)) return {
-    type: "money", title: "Dinheiro removido", actorName: s.actorName,
-    moneyGP: -itemValueGP(item), verified: false, source: s.source, scene: s.scene, token: s.token
-  };
-  return { type: "item-removed", title: "Item removido", ...s, verified: false };
+function queueEvidence(e){
+  e.time=Date.now(); e.used=false; pendingEvidence.push(e);
+  globalThis.setTimeout(async()=>{
+    try{ await correlate(e); }
+    finally{
+      const cutoff=Date.now()-5000;
+      for(let i=pendingEvidence.length-1;i>=0;i--) if(pendingEvidence[i].used || pendingEvidence[i].time<cutoff) pendingEvidence.splice(i,1);
+    }
+  },CORRELATION_MS);
 }
-function updateEntry(item, changed, oldQty) {
-  const actor = actorFor(item);
-  if (!actor) return null;
-  if (foundry.utils.getProperty(changed, "system.quantity") === undefined || !Number.isFinite(oldQty)) return null;
-  const newQty = quantity(item);
-  const delta = newQty - oldQty;
-  if (!delta) return null;
-  if (isCoin(item)) return {
-    type: "money", title: delta > 0 ? "Dinheiro adicionado" : "Dinheiro removido",
-    actorName: actor.name, moneyGP: roundGP(coinUnitGP(item) * delta), verified: false,
-    source: classifySource(item), ...sceneContext(actor)
-  };
-  return {
-    type: delta > 0 ? "item-acquired" : "item-removed",
-    title: delta > 0 ? "Quantidade adicionada" : "Quantidade removida",
-    ...snapshot(item), quantity: Math.abs(delta), valueGP: itemValueGP(item, Math.abs(delta)), verified: false
-  };
+function row(entry){
+  const amount=entry.moneyGP!=null?`<strong>${fmtGP(entry.moneyGP)}</strong>`:"";
+  const value=entry.valueGP!=null?`<span>Valor: ${fmtGP(entry.valueGP,{sign:false})}</span>`:"";
+  const source=entry.source?.label?`<span>${entry.type==="purchase"?"Vendedor":entry.type==="sale"?"Comprador":"Origem"}: ${esc(entry.source.label)}</span>`:"";
+  const transfer=entry.from&&entry.to?`<span>${esc(entry.from.name)} → ${esc(entry.to.name)}</span>`:"";
+  const badge=entry.verified?"✓ Verificado":"⚠ Não verificado";
+  return `<article class="pdp-tx-row"><header><strong>${esc(entry.title)}</strong><span class="pdp-tx-badge">${badge}</span></header>
+    <div>${esc(entry.actorName??"—")} ${amount}</div>
+    ${entry.itemName?`<div>${esc(entry.itemName)} ×${entry.quantity??1}</div>`:""}
+    <footer>${value}${source}${transfer}${entry.scene?`<span>Cena: ${esc(entry.scene)}</span>`:""}<span>${new Date(entry.timestamp).toLocaleString()}</span></footer></article>`;
 }
-Hooks.once("init", () => {
-  game.settings.register(MODULE_ID, SETTING, {
-    name: "Transaction Log Entries", scope: "world", config: false, type: Array, default: []
-  });
+function renderLog(){
+  if(!game.user.isGM) return ui.notifications.warn("O Transaction Log é GM-only nesta versão.");
+  const list=entries();
+  const content=`<div class="pdp-tx-toolbar"><strong>${list.length} registros</strong><button type="button" data-action="clear">Limpar</button></div>
+    <div class="pdp-tx-list">${list.length?list.map(row).join(""):"<p>Nenhuma transação registrada.</p>"}</div>`;
+  new Dialog({title:"Transaction Log",content,buttons:{close:{label:"Fechar"}},render:html=>html.find('[data-action="clear"]').on("click",async()=>{
+    if(!globalThis.confirm("Limpar todo o Transaction Log?")) return; await clearLog(); html.closest(".app").find(".window-header .close").trigger("click");
+  })}).render(true);
+}
+function itemEvidence(kind,item,qty=quantity(item)){
+  const s=snapshot(item); return {kind,...s,quantity:qty,valueGP:itemValueGP(item,qty)};
+}
+function moneyEvidence(item,deltaQty){
+  const actor=actorFor(item); return {kind:"money",actorUuid:actor?.uuid,actorName:actor?.name,actorKind:actorKind(actor),
+    moneyGP:roundGP(coinUnitGP(item)*deltaQty),...sceneContext(actor)};
+}
+Hooks.once("init",()=>game.settings.register(MODULE_ID,SETTING,{name:"Transaction Log Entries",scope:"world",config:false,type:Array,default:[]}));
+Hooks.once("ready",()=>{
+  game.pressaoDasProfundezas??={};
+  game.pressaoDasProfundezas.transactionLog={open:renderLog,clear:clearLog,entries};
+  game.socket.on(`module.${MODULE_ID}`,async packet=>{ if(game.user.isGM&&packet?.type==="transaction-log:add") await persist(packet.data); });
 });
-Hooks.once("ready", () => {
-  game.pressaoDasProfundezas ??= {};
-  game.pressaoDasProfundezas.transactionLog = { open: renderLog, clear: clearLog, entries };
-  game.socket.on(`module.${MODULE_ID}`, async packet => {
-    if (!game.user.isGM || packet?.type !== "transaction-log:add") return;
-    await saveEntry(packet.data);
-  });
+Hooks.on("createItem",(item,options,userId)=>{
+  if(userId!==game.user.id||options?.[MODULE_ID]?.ignoreTransactionLog) return;
+  if(isCoin(item)) queueEvidence(moneyEvidence(item,quantity(item))); else queueEvidence(itemEvidence("item-acquired",item));
 });
-Hooks.on("createItem", async (item, options, userId) => {
-  if (userId !== game.user.id || options?.[MODULE_ID]?.ignoreTransactionLog) return;
-  const entry = createEntry(item);
-  if (entry) await saveEntry(entry);
+Hooks.on("preUpdateItem",(item,changed,options,userId)=>{
+  if(userId!==game.user.id||options?.[MODULE_ID]?.ignoreTransactionLog) return;
+  if(foundry.utils.getProperty(changed,"system.quantity")!==undefined) quantityBeforeUpdate.set(item.uuid,quantity(item));
 });
-Hooks.on("preUpdateItem", (item, changed, options, userId) => {
-  if (userId !== game.user.id || options?.[MODULE_ID]?.ignoreTransactionLog) return;
-  if (foundry.utils.getProperty(changed, "system.quantity") !== undefined) quantityBeforeUpdate.set(item.uuid, quantity(item));
+Hooks.on("updateItem",(item,changed,options,userId)=>{
+  if(userId!==game.user.id||options?.[MODULE_ID]?.ignoreTransactionLog) return;
+  if(foundry.utils.getProperty(changed,"system.quantity")===undefined) return;
+  const oldQty=quantityBeforeUpdate.get(item.uuid); quantityBeforeUpdate.delete(item.uuid);
+  if(!Number.isFinite(oldQty)) return;
+  const delta=quantity(item)-oldQty; if(!delta) return;
+  if(isCoin(item)) queueEvidence(moneyEvidence(item,delta));
+  else queueEvidence(itemEvidence(delta>0?"item-acquired":"item-removed",item,Math.abs(delta)));
 });
-Hooks.on("updateItem", async (item, changed, options, userId) => {
-  if (userId !== game.user.id || options?.[MODULE_ID]?.ignoreTransactionLog) return;
-  const oldQty = quantityBeforeUpdate.get(item.uuid);
-  quantityBeforeUpdate.delete(item.uuid);
-  const entry = updateEntry(item, changed, oldQty);
-  if (entry) await saveEntry(entry);
-});
-Hooks.on("deleteItem", async (item, options, userId) => {
-  if (userId !== game.user.id || options?.[MODULE_ID]?.ignoreTransactionLog) return;
-  const entry = deleteEntry(item);
-  if (entry) await saveEntry(entry);
+Hooks.on("deleteItem",(item,options,userId)=>{
+  if(userId!==game.user.id||options?.[MODULE_ID]?.ignoreTransactionLog) return;
+  if(isCoin(item)) queueEvidence(moneyEvidence(item,-quantity(item))); else queueEvidence(itemEvidence("item-removed",item));
 });
