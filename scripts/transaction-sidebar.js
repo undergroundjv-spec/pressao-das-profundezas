@@ -1,5 +1,5 @@
 const MODULE_ID = "pressao-das-profundezas";
-const VERSION = "0.8.2";
+const VERSION = "0.8.3";
 const TAB_ID = "pdp-transactions";
 const WAIT_MS = 1200;
 
@@ -92,7 +92,6 @@ function waitForDamageLog(root,chatLog){
 }
 
 async function install(chatTab,html){
-  if(!game.user.isGM) return;
   const root=rootElement(chatTab,html);
   log(`renderChatLog fired; root=${!!root}`);
   if(!root) return;
