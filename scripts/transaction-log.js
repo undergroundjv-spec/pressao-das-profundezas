@@ -1,7 +1,7 @@
 const MODULE_ID = "pressao-das-profundezas";
 const SETTING = "transactionLog.entries";
 const MAX_ENTRIES = 1000;
-const CORRELATION_MS = 750;
+const CORRELATION_MS = 1500;
 const COIN_GP = { "platinum-pieces": 10, "gold-pieces": 1, "silver-pieces": 0.1, "copper-pieces": 0.01 };
 const quantityBeforeUpdate = new Map();
 const pendingEvidence = [];
@@ -68,8 +68,12 @@ function sameItem(a,b){ return evidenceKey(a)===evidenceKey(b); }
 function oppositeItem(e){
   return pendingEvidence.find(x=>!x.used && x.kind!==e.kind && x.kind!=="money" && sameItem(x,e) && x.actorUuid!==e.actorUuid);
 }
-function moneyFor(actorUuid,sign){
-  return pendingEvidence.find(x=>!x.used && x.kind==="money" && x.actorUuid===actorUuid && Math.sign(x.moneyGP)===sign);
+function moneyNetFor(actorUuid,sign){
+  const parts=pendingEvidence.filter(x=>!x.used && x.kind==="money" && x.actorUuid===actorUuid);
+  if(!parts.length) return null;
+  const net=roundGP(parts.reduce((sum,x)=>sum+x.moneyGP,0));
+  if(!net || Math.sign(net)!==sign) return null;
+  return {parts,net};
 }
 function consume(...xs){ xs.filter(Boolean).forEach(x=>{x.used=true;}); }
 function sourceLabel(e){ return e?.actorName ?? "Desconhecida"; }
@@ -98,11 +102,11 @@ async function correlate(e){
       return;
     }
     if(!isPlayerFacingKind(removed.actorKind) && isPlayerFacingKind(added.actorKind)){
-      const paid=moneyFor(added.actorUuid,-1);
-      consume(removed,added,paid);
+      const paid=moneyNetFor(added.actorUuid,-1);
+      consume(removed,added,...(paid?.parts??[]));
       if(removed.actorKind==="merchant"){
         await emitSemantic({type:"purchase",title:"Compra",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
-          moneyGP:paid?.moneyGP??null,source:{type:"vendor",label:sourceLabel(removed),uuid:removed.actorUuid},verified:!!paid,scene:added.scene});
+          moneyGP:paid?.net??null,source:{type:"vendor",label:sourceLabel(removed),uuid:removed.actorUuid},verified:!!paid,scene:added.scene});
       } else {
         await emitSemantic({type:"loot",title:"Tesouro obtido",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
           source:{type:removed.actorKind==="npc"?"corpse":"treasure",label:sourceLabel(removed),uuid:removed.actorUuid},verified:true,scene:removed.scene??added.scene});
@@ -110,11 +114,11 @@ async function correlate(e){
       return;
     }
     if(isPlayerFacingKind(removed.actorKind) && !isPlayerFacingKind(added.actorKind)){
-      const received=moneyFor(removed.actorUuid,1);
-      consume(removed,added,received);
+      const received=moneyNetFor(removed.actorUuid,1);
+      consume(removed,added,...(received?.parts??[]));
       if(added.actorKind==="merchant"){
         await emitSemantic({type:"sale",title:"Item vendido",actorName:removed.actorName,itemName:removed.itemName,quantity:removed.quantity,valueGP:removed.valueGP,
-          moneyGP:received?.moneyGP??null,source:{type:"vendor",label:sourceLabel(added),uuid:added.actorUuid},verified:!!received,scene:removed.scene});
+          moneyGP:received?.net??null,source:{type:"vendor",label:sourceLabel(added),uuid:added.actorUuid},verified:!!received,scene:removed.scene});
       }
       return;
     }
