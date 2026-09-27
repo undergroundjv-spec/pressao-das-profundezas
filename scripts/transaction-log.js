@@ -100,6 +100,25 @@ function moneyNetFor(actorUuid,sign){
 }
 function consume(...xs){ xs.filter(Boolean).forEach(x=>{x.used=true;}); }
 function sourceLabel(e){ return e?.actorName ?? "Desconhecida"; }
+function provenanceNode(name,uuid=null,type="actor"){ return {name:name??"Desconhecida",uuid,type}; }
+function priorProvenance(actorName,itemName){
+  if(!actorName||!itemName) return null;
+  const prior=entries().find(x=>x.itemName===itemName && x.actorName===actorName && Array.isArray(x.provenance?.path));
+  return prior?.provenance ? foundry.utils.deepClone(prior.provenance) : null;
+}
+function appendProvenance(provenance,node){
+  const p=foundry.utils.deepClone(provenance??{verified:false,path:[]});
+  const last=p.path.at(-1);
+  if(!last || last.name!==node.name || last.uuid!==node.uuid) p.path.push(node);
+  return p;
+}
+function establishedProvenance(origin,destination,verified=true){
+  return {verified,path:[origin,destination].filter(Boolean)};
+}
+function inheritedProvenance(holderName,itemName,destination){
+  const prior=priorProvenance(holderName,itemName);
+  return prior ? appendProvenance(prior,destination) : {verified:false,path:[provenanceNode(holderName,null,"unknown"),destination]};
+}
 async function emitSemantic(entry){ await persist({...entry,verified:entry.verified??false}); }
 
 async function correlate(e){
@@ -121,19 +140,23 @@ async function correlate(e){
 
     if(isPlayerFacingKind(removed.actorKind) && isPlayerFacingKind(added.actorKind)){
       consume(removed,added);
+      const provenance=inheritedProvenance(removed.actorName,removed.itemName,provenanceNode(added.actorName,added.actorUuid,"character"));
       await emitSemantic({type:"transfer",title:"Item transferido",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
-        from:{name:removed.actorName,uuid:removed.actorUuid},to:{name:added.actorName,uuid:added.actorUuid},verified:true,scene:added.scene});
+        from:{name:removed.actorName,uuid:removed.actorUuid},to:{name:added.actorName,uuid:added.actorUuid},provenance,verified:true,scene:added.scene});
       return;
     }
     if(!isPlayerFacingKind(removed.actorKind) && isPlayerFacingKind(added.actorKind)){
       const paid=moneyNetFor(added.actorUuid,-1);
       consume(removed,added,...(paid?.parts??[]));
       if(removed.actorKind==="merchant"){
+        const provenance=establishedProvenance(provenanceNode(sourceLabel(removed),removed.actorUuid,"vendor"),provenanceNode(added.actorName,added.actorUuid,"character"),!!paid);
         await emitSemantic({type:"purchase",title:"Compra",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
-          moneyGP:paid?.net??null,moneyBeforeGP:paid?.moneyBeforeGP??null,moneyAfterGP:paid?.moneyAfterGP??null,source:{type:"vendor",label:sourceLabel(removed),uuid:removed.actorUuid},verified:!!paid,scene:added.scene});
+          moneyGP:paid?.net??null,moneyBeforeGP:paid?.moneyBeforeGP??null,moneyAfterGP:paid?.moneyAfterGP??null,source:{type:"vendor",label:sourceLabel(removed),uuid:removed.actorUuid},provenance,verified:!!paid,scene:added.scene});
       } else {
+        const sourceType=removed.actorKind==="npc"?"corpse":"treasure";
+        const provenance=establishedProvenance(provenanceNode(sourceLabel(removed),removed.actorUuid,sourceType),provenanceNode(added.actorName,added.actorUuid,"character"),true);
         await emitSemantic({type:"loot",title:"Tesouro obtido",actorName:added.actorName,itemName:added.itemName,quantity:added.quantity,valueGP:added.valueGP,
-          source:{type:removed.actorKind==="npc"?"corpse":"treasure",label:sourceLabel(removed),uuid:removed.actorUuid},verified:true,scene:removed.scene??added.scene});
+          source:{type:sourceType,label:sourceLabel(removed),uuid:removed.actorUuid},provenance,verified:true,scene:removed.scene??added.scene});
       }
       return;
     }
@@ -141,8 +164,9 @@ async function correlate(e){
       const received=moneyNetFor(removed.actorUuid,1);
       consume(removed,added,...(received?.parts??[]));
       if(added.actorKind==="merchant"){
+        const provenance=inheritedProvenance(removed.actorName,removed.itemName,provenanceNode(sourceLabel(added),added.actorUuid,"vendor"));
         await emitSemantic({type:"sale",title:"Item vendido",actorName:removed.actorName,itemName:removed.itemName,quantity:removed.quantity,valueGP:removed.valueGP,
-          moneyGP:received?.net??null,moneyBeforeGP:received?.moneyBeforeGP??null,moneyAfterGP:received?.moneyAfterGP??null,source:{type:"vendor",label:sourceLabel(added),uuid:added.actorUuid},verified:!!received,scene:removed.scene});
+          moneyGP:received?.net??null,moneyBeforeGP:received?.moneyBeforeGP??null,moneyAfterGP:received?.moneyAfterGP??null,source:{type:"vendor",label:sourceLabel(added),uuid:added.actorUuid},provenance,verified:!!received,scene:removed.scene});
       }
       return;
     }
@@ -153,8 +177,10 @@ async function correlate(e){
   if(!isPlayerFacingKind(e.actorKind)){ consume(e); return; }
   consume(e);
   if(e.kind==="item-acquired"){
+    const origin=provenanceNode(e.source?.label??"Desconhecida",e.source?.uuid??null,e.source?.type??"unknown");
+    const provenance=establishedProvenance(origin,provenanceNode(e.actorName,e.actorUuid,"character"),false);
     await emitSemantic({type:"item-acquired",title:"Aquisição não verificada",actorName:e.actorName,itemName:e.itemName,quantity:e.quantity,valueGP:e.valueGP,
-      source:e.source,verified:false,scene:e.scene,token:e.token});
+      source:e.source,provenance,verified:false,scene:e.scene,token:e.token});
   } else {
     await emitSemantic({type:"item-removed",title:"Item removido",actorName:e.actorName,itemName:e.itemName,quantity:e.quantity,valueGP:e.valueGP,
       verified:false,scene:e.scene,token:e.token});
@@ -178,9 +204,12 @@ function row(entry){
   const balance=Number.isFinite(entry.moneyBeforeGP)&&Number.isFinite(entry.moneyAfterGP)
     ? `<span>Saldo: ${fmtGP(entry.moneyBeforeGP,{sign:false})} → ${fmtGP(entry.moneyAfterGP,{sign:false})}</span>`:"";
   const badge=entry.verified?"✓ Verificado":"⚠ Não verificado";
+  const provenance=Array.isArray(entry.provenance?.path)&&entry.provenance.path.length
+    ? `<div class="pdp-tx-provenance"><strong>Histórico:</strong> ${entry.provenance.path.map(x=>esc(x.name)).join(" → ")}${entry.provenance.verified?"":" <span title=\"A origem completa não pôde ser confirmada\">⚠</span>"}</div>`:"";
   return `<article class="pdp-tx-row"><header><strong>${esc(entry.title)}</strong><span class="pdp-tx-badge">${badge}</span></header>
     <div>${esc(entry.actorName??"—")} ${amount}</div>
     ${entry.itemName?`<div>${esc(entry.itemName)} ×${entry.quantity??1}</div>`:""}
+    ${provenance}
     <footer>${value}${source}${transfer}${balance}${entry.scene?`<span>Cena: ${esc(entry.scene)}</span>`:""}<span>${new Date(entry.timestamp).toLocaleString()}</span></footer></article>`;
 }
 function renderLog(){
