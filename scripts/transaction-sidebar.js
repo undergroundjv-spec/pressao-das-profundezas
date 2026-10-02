@@ -1,5 +1,5 @@
 const MODULE_ID = "pressao-das-profundezas";
-const VERSION = "0.8.4";
+const VERSION = "0.8.6";
 const TAB_ID = "pdp-transactions";
 const WAIT_MS = 5000;
 
