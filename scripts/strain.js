@@ -1,7 +1,7 @@
 const MODULE_ID = "pressao-das-profundezas";
 const TOOLBELT = "pf2e-toolbelt";
 const RESOURCE_SETTING = "resourceTracker.worldResources";
-const VERSION = "0.8.4";
+const VERSION = "0.8.6";
 
 const LABELS = {
   fortitude:"Fortitude", reflex:"Reflexos", will:"Vontade", perception:"Percepção",
