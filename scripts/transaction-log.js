@@ -14,7 +14,7 @@ function actorFor(item){ return item?.parent?.documentName==="Actor" ? item.pare
 function quantity(item){ return Number(item?.system?.quantity ?? 1); }
 function coinUnitGP(item){ return COIN_GP[item?.slug] ?? COIN_GP[item?.system?.slug] ?? null; }
 function isCoin(item){ return coinUnitGP(item)!==null; }
-const IGNORED_TYPES = new Set(["spell", "effect"]);
+const IGNORED_TYPES = new Set(["spell", "effect", "condition"]);
 function isTrackedItem(item){ return !IGNORED_TYPES.has(item?.type); }
 function actorMoneyGP(actor){
   if(!actor) return null;
